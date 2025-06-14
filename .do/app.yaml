@@ -1,0 +1,20 @@
+name: emsona-music-app
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: yourusername/emsona
+    branch: main
+  run_command: python interface/app.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 8080
+  routes:
+  - path: /
+  envs:
+  - key: SECRET_KEY
+    value: emsona-secret-key-2024
+    type: SECRET
+  - key: PORT
+    value: "8080"
