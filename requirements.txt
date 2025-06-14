@@ -1,0 +1,17 @@
+Flask==2.3.3
+gunicorn
+pandas
+numpy==1.24.1
+scipy
+scikit-learn
+plotly
+unicodedata2
+rapidfuzz
+yt-dlp
+essentia
+tensorflow
+essentia_tensorflow
+pytube
+pydub
+faiss-cpu
+requests
