@@ -3,7 +3,7 @@ services:
 - name: web
   source_dir: /
   github:
-    repo: yourusername/emsona
+    repo: xggarcia/emsona
     branch: main
   run_command: python interface/app.py
   environment_slug: python
@@ -13,7 +13,7 @@ services:
   routes:
   - path: /
   envs:
-  - key: SECRET_KEY
+  - key: SECRET_KEY 
     value: emsona-secret-key-2024
     type: SECRET
   - key: PORT
