@@ -72,7 +72,9 @@ def add_like(video_id, titulo=None, artista=None, link=None):
 
 def get_liked_songs():
     """Get all liked songs from the database with proper like counts"""
-    conn = sqlite3.connect('likes.db')
+    # Fix: Use absolute path like in other functions
+    db_path = os.path.join(os.path.dirname(__file__), 'likes.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     try:
