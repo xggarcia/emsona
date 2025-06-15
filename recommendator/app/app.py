@@ -24,6 +24,13 @@ import argparse
 import time
 import random
 
+# Configure requests with better headers globally
+requests.adapters.DEFAULT_RETRIES = 3
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+})
+
 
 def sanitize_title(title: str, channel: str) -> str:
     # Simple title cleaner – you can customize this further
@@ -729,181 +736,209 @@ def plot_svg_recommendations(query_id, recommendations, output_path="recommendat
     print(f"✅ SVG plot saved to: {output_path}")
 
 
-def recomendator_with_faiss(song_path, song_url, embedding_path, model_path, metadata_path, store_metadata_path, song_embeddings, store_svg, k=1, n=5):
+def recomendator_with_faiss(song_path, song_url, embedding_path, model_path, 
+                           metadata_path, store_metadata_path, song_embeddings, 
+                           store_svg, k, n):
+    
+    # --- Debugging info ---
+    print(f"Starting recomendator_with_faiss for URL: {song_url}")
+    print(f"  song_path: {song_path}")
+    print(f"  embedding_path: {embedding_path}")
+    print(f"  model_path: {model_path}")
+    print(f"  metadata_path: {metadata_path}")
+    print(f"  store_metadata_path: {store_metadata_path}")
+    print(f"  song_embeddings: {song_embeddings}")
+    print(f"  store_svg: {store_svg}")
+    print(f"  k: {k}, n: {n}")
+    # ----------------------
+
+    # Clear folders first
+    clear_folders(song_path, embedding_path, store_metadata_path)
+
     store_metadata_path_file = os.path.join(store_metadata_path, "metadata.csv")
     new_song_embeddings = os.path.join(embedding_path, "embedding_song.pkl")
 
-    # Step 1: Download and embed the song
-    song_name, channel_name, mp3_path = try_download_methods(song_url, song_path, embedding_path, store_metadata_path)
-
-    compute_effnet_embeddings_for_folder(song_path, model_path, embedding_path, song_name, channel_name)
-
-    # Step 2: Load metadata
-    metadata1 = pd.read_csv(metadata_path)
-    metadata2 = pd.read_csv(store_metadata_path_file)
-    metadata_df = pd.concat([metadata1, metadata2], ignore_index=True)
-    metadata_df["YT Link"] = "https://www.youtube.com/watch?v=" + metadata_df["video_id"]
-
-    # Step 3: Load embeddings
-    df = build_dataframe(song_embeddings, new_song_embeddings)
-
-    # Step 4: Merge metadata
-    df["query_key"] = (df["Artist"] + " " + df["Song"]).apply(normalize_text)
-    metadata_df["meta_key"] = (metadata_df["channel_name"] + " " + metadata_df["song_title"]).apply(normalize_text)
-    df = fuzzy_merge(df, metadata_df, "query_key", "meta_key", threshold=85)
-
-    # Step 5: Cluster embeddings
-    embedding_cols = [col for col in df.columns if col.startswith("e")]
-    df[embedding_cols] = df[embedding_cols].astype('float32')
-    embeddings = df[embedding_cols].values
-
-    kmeans = KMeans(n_clusters=k, random_state=42)
-    cluster_labels = kmeans.fit_predict(embeddings)
-    df = df.copy()  # defragment
-    df[f"Cluster_{k}"] = cluster_labels
-
-    # Step 6: Prepare query using embeddings directly from new song
     try:
-        # Load the new song's embedding
-        with open(new_song_embeddings, 'rb') as f:
-            new_data = pickle.load(f)
+        # Use the enhanced download function
+        song_title = download_song_enhanced(song_url, song_path)
         
-        if new_data and len(new_data) > 0:
-            # Get embedding from the new song
-            new_embedding = np.array(new_data[0]["embedding"], dtype='float32')
+        if not song_title:
+            raise Exception("All download methods failed to download the song")
+        
+        print(f"Successfully downloaded: {song_title}")
+        
+        # Step 1: Embed the downloaded song
+        compute_effnet_embeddings_for_folder(song_path, model_path, embedding_path)
+        
+        # Step 2: Load metadata
+        metadata1 = pd.read_csv(metadata_path)
+        metadata2 = pd.read_csv(store_metadata_path_file)
+        metadata_df = pd.concat([metadata1, metadata2], ignore_index=True)
+        metadata_df["YT Link"] = "https://www.youtube.com/watch?v=" + metadata_df["video_id"]
+
+        # Step 3: Load embeddings
+        df = build_dataframe(song_embeddings, new_song_embeddings)
+
+        # Step 4: Merge metadata
+        df["query_key"] = (df["Artist"] + " " + df["Song"]).apply(normalize_text)
+        metadata_df["meta_key"] = (metadata_df["channel_name"] + " " + metadata_df["song_title"]).apply(normalize_text)
+        df = fuzzy_merge(df, metadata_df, "query_key", "meta_key", threshold=85)
+
+        # Step 5: Cluster embeddings
+        embedding_cols = [col for col in df.columns if col.startswith("e")]
+        df[embedding_cols] = df[embedding_cols].astype('float32')
+        embeddings = df[embedding_cols].values
+
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        cluster_labels = kmeans.fit_predict(embeddings)
+        df = df.copy()  # defragment
+        df[f"Cluster_{k}"] = cluster_labels
+
+        # Step 6: Prepare query using embeddings directly from new song
+        try:
+            # Load the new song's embedding
+            with open(new_song_embeddings, 'rb') as f:
+                new_data = pickle.load(f)
             
-            # Create a query ID from the song name and channel name
-            song_name = new_data[0]["song_title"].replace(' ', '_').strip()
-            channel_name = new_data[0]["channel_name"].replace(' ', '_').strip()
+            if new_data and len(new_data) > 0:
+                # Get embedding from the new song
+                new_embedding = np.array(new_data[0]["embedding"], dtype='float32')
+                
+                # Create a query ID from the song name and channel name
+                song_name = new_data[0]["song_title"].replace(' ', '_').strip()
+                channel_name = new_data[0]["channel_name"].replace(' ', '_').strip()
+                
+                # Create a query row for the new song
+                query_row = pd.DataFrame({
+                    'Artist': [channel_name],
+                    'Song': [song_name],
+                    'Population': ['Selected Song'],
+                    'YT Link': [f"https://www.youtube.com/watch?v={new_data[0]['video_id']}"]
+                })
+                
+                # Add embedding columns
+                for i, val in enumerate(new_embedding):
+                    query_row[f"e{i}"] = [val]
+                
+                # Add cluster label for the query song
+                query_embedding_reshaped = new_embedding.reshape(1, -1)
+                query_cluster = kmeans.predict(query_embedding_reshaped)[0]
+                query_row[f"Cluster_{k}"] = query_cluster
+                
+                # Add query song to main DataFrame
+                df = pd.concat([df, query_row], ignore_index=True)
+                
+                # Set query embedding for FAISS search
+                query_embedding = new_embedding
+                
+            else:
+                raise ValueError("Could not load embedding for the new song")
+
+        except Exception as e:
+            print(f"Error loading new song embedding: {str(e)}")
+            raise ValueError(f"Could not process query song '{song_name}' by '{channel_name}'")
+
+        # Continue with FAISS search using query_embedding and query_cluster
+
+        # Step 7: FAISS within the same cluster
+        cluster_df = df[df[f"Cluster_{k}"] == query_cluster].copy()
+        cluster_embeddings = cluster_df[embedding_cols].values.astype('float32')
+        
+        # Increase n to ensure we have enough recommendations after filtering
+        buffer_n = n + 1  # Add 1 to account for the query song
+        indices, distances = find_closest_embeddings_faiss(cluster_embeddings, query_embedding, top_k=buffer_n)
+
+        recommendations = cluster_df.iloc[indices].copy()
+        recommendations["Distance"] = distances
+
+        # Filter out query song
+        recommendations = recommendations[
+            ~((recommendations["Artist"] == channel_name) & (recommendations["Song"] == song_name))
+        ]
+
+        # If we don't have enough recommendations from the same cluster, get more from other clusters
+        while len(recommendations) < n:
+            # Find the next closest cluster
+            remaining_clusters = sorted(set(df[f"Cluster_{k}"].unique()) - {query_cluster})
+            if not remaining_clusters:
+                break
+                
+            next_cluster = remaining_clusters[0]
+            query_cluster = next_cluster  # Update for next iteration
             
-            # Create a query row for the new song
-            query_row = pd.DataFrame({
-                'Artist': [channel_name],
-                'Song': [song_name],
-                'Population': ['Selected Song'],
-                'YT Link': [f"https://www.youtube.com/watch?v={new_data[0]['video_id']}"]
+            # Get recommendations from the next cluster
+            next_cluster_df = df[df[f"Cluster_{k}"] == next_cluster].copy()
+            next_cluster_embeddings = next_cluster_df[embedding_cols].values.astype('float32')
+            next_indices, next_distances = find_closest_embeddings_faiss(
+                next_cluster_embeddings, 
+                query_embedding, 
+                top_k=n - len(recommendations)
+            )
+            
+            # Add new recommendations
+            next_recommendations = next_cluster_df.iloc[next_indices].copy()
+            next_recommendations["Distance"] = next_distances
+            recommendations = pd.concat([recommendations, next_recommendations])
+
+        # Ensure we have exactly n recommendations by taking the top n
+        recommendations = recommendations.head(n)
+
+        # Step 8: Ensure required columns exist
+        required_columns = ["Artist", "Song", "Distance", "YT Link"]
+        for col in required_columns:
+            if col not in recommendations.columns:
+                recommendations[col] = "N/A"
+
+        df_plot = df.copy()
+        # Filter the DataFrame to include only the query song and the recommended songs
+        query_artist, query_song = channel_name, song_name
+        recommended_songs = recommendations[["Artist", "Song"]]
+
+        # Create a mask for the query song
+        query_mask = (df["Artist"] == query_artist) & (df["Song"] == query_song)
+
+        # Create a mask for the recommended songs
+        recommended_mask = df.apply(lambda row: f"{row['Artist']}::{row['Song']}" in 
+                                    [f"{a}::{s}" for a, s in zip(recommended_songs["Artist"], recommended_songs["Song"])], axis=1)
+
+        # Combine the masks
+        combined_mask = query_mask | recommended_mask
+
+        # Filter the DataFrame
+        df_plot = df[combined_mask].copy()
+
+        # ✅ Apply PCA to get 2D coordinates for visualization
+        pca = PCA(n_components=2)
+        coords_2d = pca.fit_transform(df_plot[embedding_cols])
+        df_plot['x'] = coords_2d[:, 0]
+        df_plot['y'] = coords_2d[:, 1]
+
+        # Step 9: Plot recommendations
+        plot_recommendations(df_plot, query_id_creator(channel_name, song_name), recommendations, k=k, output_path=store_svg)
+        
+        # ✅ Prepare coordinates data for interface
+        coordinates = []
+        for _, row in df_plot.iterrows():
+            coordinates.append({
+                'artist': row['Artist'],
+                'song': row['Song'],
+                'x': float(row['x']),
+                'y': float(row['y']),
+                'is_query': (row['Artist'] == query_artist and row['Song'] == query_song)
             })
-            
-            # Add embedding columns
-            for i, val in enumerate(new_embedding):
-                query_row[f"e{i}"] = [val]
-            
-            # Add cluster label for the query song
-            query_embedding_reshaped = new_embedding.reshape(1, -1)
-            query_cluster = kmeans.predict(query_embedding_reshaped)[0]
-            query_row[f"Cluster_{k}"] = query_cluster
-            
-            # Add query song to main DataFrame
-            df = pd.concat([df, query_row], ignore_index=True)
-            
-            # Set query embedding for FAISS search
-            query_embedding = new_embedding
-            
-        else:
-            raise ValueError("Could not load embedding for the new song")
-
+        
+        cluster_col = f"Cluster_{k}"
+        if cluster_col in recommendations.columns:
+            recommendations = recommendations.drop(columns=[cluster_col])
+        
+        # ✅ Return both recommendations and coordinates
+        return {
+            'recommendations': recommendations,
+            'coordinates': coordinates
+        }
     except Exception as e:
-        print(f"Error loading new song embedding: {str(e)}")
-        raise ValueError(f"Could not process query song '{song_name}' by '{channel_name}'")
-
-    # Continue with FAISS search using query_embedding and query_cluster
-
-    # Step 7: FAISS within the same cluster
-    cluster_df = df[df[f"Cluster_{k}"] == query_cluster].copy()
-    cluster_embeddings = cluster_df[embedding_cols].values.astype('float32')
-    
-    # Increase n to ensure we have enough recommendations after filtering
-    buffer_n = n + 1  # Add 1 to account for the query song
-    indices, distances = find_closest_embeddings_faiss(cluster_embeddings, query_embedding, top_k=buffer_n)
-
-    recommendations = cluster_df.iloc[indices].copy()
-    recommendations["Distance"] = distances
-
-    # Filter out query song
-    recommendations = recommendations[
-        ~((recommendations["Artist"] == channel_name) & (recommendations["Song"] == song_name))
-    ]
-
-    # If we don't have enough recommendations from the same cluster, get more from other clusters
-    while len(recommendations) < n:
-        # Find the next closest cluster
-        remaining_clusters = sorted(set(df[f"Cluster_{k}"].unique()) - {query_cluster})
-        if not remaining_clusters:
-            break
-            
-        next_cluster = remaining_clusters[0]
-        query_cluster = next_cluster  # Update for next iteration
-        
-        # Get recommendations from the next cluster
-        next_cluster_df = df[df[f"Cluster_{k}"] == next_cluster].copy()
-        next_cluster_embeddings = next_cluster_df[embedding_cols].values.astype('float32')
-        next_indices, next_distances = find_closest_embeddings_faiss(
-            next_cluster_embeddings, 
-            query_embedding, 
-            top_k=n - len(recommendations)
-        )
-        
-        # Add new recommendations
-        next_recommendations = next_cluster_df.iloc[next_indices].copy()
-        next_recommendations["Distance"] = next_distances
-        recommendations = pd.concat([recommendations, next_recommendations])
-
-    # Ensure we have exactly n recommendations by taking the top n
-    recommendations = recommendations.head(n)
-
-    # Step 8: Ensure required columns exist
-    required_columns = ["Artist", "Song", "Distance", "YT Link"]
-    for col in required_columns:
-        if col not in recommendations.columns:
-            recommendations[col] = "N/A"
-
-    df_plot = df.copy()
-    # Filter the DataFrame to include only the query song and the recommended songs
-    query_artist, query_song = channel_name, song_name
-    recommended_songs = recommendations[["Artist", "Song"]]
-
-    # Create a mask for the query song
-    query_mask = (df["Artist"] == query_artist) & (df["Song"] == query_song)
-
-    # Create a mask for the recommended songs
-    recommended_mask = df.apply(lambda row: f"{row['Artist']}::{row['Song']}" in 
-                                [f"{a}::{s}" for a, s in zip(recommended_songs["Artist"], recommended_songs["Song"])], axis=1)
-
-    # Combine the masks
-    combined_mask = query_mask | recommended_mask
-
-    # Filter the DataFrame
-    df_plot = df[combined_mask].copy()
-
-    # ✅ Apply PCA to get 2D coordinates for visualization
-    pca = PCA(n_components=2)
-    coords_2d = pca.fit_transform(df_plot[embedding_cols])
-    df_plot['x'] = coords_2d[:, 0]
-    df_plot['y'] = coords_2d[:, 1]
-
-    # Step 9: Plot recommendations
-    plot_recommendations(df_plot, query_id_creator(channel_name, song_name), recommendations, k=k, output_path=store_svg)
-    
-    # ✅ Prepare coordinates data for interface
-    coordinates = []
-    for _, row in df_plot.iterrows():
-        coordinates.append({
-            'artist': row['Artist'],
-            'song': row['Song'],
-            'x': float(row['x']),
-            'y': float(row['y']),
-            'is_query': (row['Artist'] == query_artist and row['Song'] == query_song)
-        })
-    
-    cluster_col = f"Cluster_{k}"
-    if cluster_col in recommendations.columns:
-        recommendations = recommendations.drop(columns=[cluster_col])
-    
-    # ✅ Return both recommendations and coordinates
-    return {
-        'recommendations': recommendations,
-        'coordinates': coordinates
-    }
+        print(f"Error in recomendator_with_faiss: {e}")
+        raise e
 
 
 def is_folder_empty(folder_path):
