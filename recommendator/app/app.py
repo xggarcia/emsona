@@ -21,6 +21,8 @@ import faiss
 from sklearn.decomposition import PCA
 import requests
 import argparse
+import time
+import random
 
 
 def sanitize_title(title: str, channel: str) -> str:
@@ -946,6 +948,87 @@ def try_download_methods(song_url, song_path, embedding_path, store_metadata_pat
     # If all methods fail, return a default tuple that indicates failure
     raise Exception("All download methods failed to download the song")
 
+def download_audio_with_fallback(url, output_path):
+    """Enhanced download function with multiple fallback methods"""
+    
+    # Method 1: yt-dlp with enhanced options
+    def try_ytdlp_enhanced():
+        try:
+            import yt_dlp
+            
+            # Enhanced yt-dlp options to avoid bot detection
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': f'{output_path}/%(title)s.%(ext)s',
+                'extractaudio': True,
+                'audioformat': 'mp3',
+                'audioquality': '192K',
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'referer': 'https://www.youtube.com/',
+                'sleep_interval': 1,
+                'max_sleep_interval': 5,
+                'sleep_interval_subtitles': 1,
+                'cookiefile': None,  # Don't use cookies initially
+                'headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                    'DNT': '1',
+                }
+            }
+            
+            # Add random delay to avoid rate limiting
+            time.sleep(random.uniform(1, 3))
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return True, info.get('title', 'Unknown')
+                
+        except Exception as e:
+            print(f"yt-dlp enhanced failed: {e}")
+            return False, None
+    
+    # Method 2: pytube with retry logic
+    def try_pytube_enhanced():
+        try:
+            from pytube import YouTube
+            
+            # Add delay and retry logic
+            for attempt in range(3):
+                try:
+                    time.sleep(random.uniform(2, 4))  # Random delay
+                    yt = YouTube(url)
+                    stream = yt.streams.filter(only_audio=True).first()
+                    if stream:
+                        stream.download(output_path)
+                        return True, yt.title
+                except Exception as e:
+                    if attempt < 2:  # Retry up to 3 times
+                        print(f"Pytube attempt {attempt + 1} failed, retrying...")
+                        time.sleep(random.uniform(3, 6))
+                        continue
+                    else:
+                        raise e
+                        
+        except Exception as e:
+            print(f"pytube enhanced failed: {e}")
+            return False, None
+    
+    # Try methods in sequence
+    methods = [try_ytdlp_enhanced, try_pytube_enhanced]
+    
+    for method in methods:
+        success, title = method()
+        if success:
+            return success, title
+        
+        # Wait between methods to avoid triggering more restrictions
+        time.sleep(random.uniform(5, 10))
+    
+    return False, None
+
+# Update your existing download function to use this
 # Replace the original try-except block with:
 
 
