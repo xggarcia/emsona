@@ -120,6 +120,3 @@ Thumbs.db
 # Custom directories
 downloads/
 temp/
-store_song/
-store_embedding/
-store_metadata/
