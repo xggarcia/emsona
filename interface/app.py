@@ -553,6 +553,5 @@ def suggest_song():
     return render_template('forms.html', error=error)
 
 if __name__ == '__main__':
-    # For DigitalOcean deployment
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Remove the Flask development server
+    pass
