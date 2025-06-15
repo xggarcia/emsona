@@ -1057,6 +1057,45 @@ def download_song_enhanced(url, output_path):
     return None
 
 
+def get_youtube_metadata(video_id):
+    """Get song metadata from YouTube without downloading"""
+    try:
+        # You'll need a YouTube API key from Google Cloud Console
+        API_KEY = os.environ.get('YOUTUBE_API_KEY', '')
+        if not API_KEY:
+            return None
+            
+        url = f"https://www.googleapis.com/youtube/v3/videos?id={video_id}&key={API_KEY}&part=snippet"
+        response = requests.get(url)
+        data = response.json()
+        
+        if 'items' in data and len(data['items']) > 0:
+            snippet = data['items'][0]['snippet']
+            return {
+                'title': snippet['title'],
+                'description': snippet['description'],
+                'channel': snippet['channelTitle']
+            }
+    except Exception as e:
+        print(f"YouTube API error: {e}")
+    
+    return None
+
+def find_similar_by_metadata(youtube_metadata):
+    """Find similar songs in your database using metadata matching"""
+    if not youtube_metadata:
+        return []
+    
+    title = youtube_metadata['title'].lower()
+    # Extract artist and song name from title
+    # Common patterns: "Artist - Song", "Song by Artist", etc.
+    
+    # Search your existing metadata.csv for similar songs
+    # This is much more reliable than downloading
+    
+    # Return your existing recommendations logic
+    pass
+
 if __name__ == "__main__":
     # --- Command-line argument parsing ---
     parser = argparse.ArgumentParser(description="Run the Recommendator V4 script.")
