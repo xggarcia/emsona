@@ -1017,12 +1017,20 @@ def download_audio_with_fallback(url, output_path):
             time.sleep(random.uniform(1, 3))
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return True, info.get('title', 'Unknown')
+                info = ydl.extract_info(url, download=False)
+                song_title = info.get('title', 'Unknown')
                 
+                # Add another delay before download
+                time.sleep(random.uniform(3, 6))
+                
+                # Now download
+                ydl.download([url])
+                
+            return song_title
+        
         except Exception as e:
-            print(f"yt-dlp enhanced failed: {e}")
-            return False, None
+            print(f"yt-dlp enhanced error: {e}")
+            return None
     
     # Method 2: pytube with retry logic
     def try_pytube_enhanced():
@@ -1037,7 +1045,7 @@ def download_audio_with_fallback(url, output_path):
                     stream = yt.streams.filter(only_audio=True).first()
                     if stream:
                         stream.download(output_path)
-                        return True, yt.title
+                        return yt.title
                 except Exception as e:
                     if attempt < 2:  # Retry up to 3 times
                         print(f"Pytube attempt {attempt + 1} failed, retrying...")
@@ -1048,7 +1056,7 @@ def download_audio_with_fallback(url, output_path):
                         
         except Exception as e:
             print(f"pytube enhanced failed: {e}")
-            return False, None
+            return None
     
     # Try methods in sequence
     methods = [try_ytdlp_enhanced, try_pytube_enhanced]
